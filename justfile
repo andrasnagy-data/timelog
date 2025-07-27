@@ -3,7 +3,7 @@ default:
 
 # Start PostgreSQL container
 start-db:
-    docker compose -f docker/docker-compose.yaml up -d postgres
+    docker compose up -d postgres
 
 # Start database and run the server
 start: start-db swagger-gen
@@ -12,7 +12,7 @@ start: start-db swagger-gen
 
 # Stop PostgreSQL container
 stop-db:
-    docker compose -f docker/docker-compose.yaml down
+    docker compose down
 
 # Run migrations
 migrate-up env="dev":
