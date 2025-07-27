@@ -1,16 +1,17 @@
-package main
+package logging
 
 import (
 	"os"
 	"time"
 
+	"github.com/andrasnagy-data/timelog/internal/shared/config"
 	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 // NewLogger creates a new zerolog logger with pretty console output for development or JSON output for production, and returns an optional Sentry writer (nil if not production)
-func NewLogger(config *Config) (zerolog.Logger, *sentryzerolog.Writer) {
+func NewLogger(config *config.Config) (zerolog.Logger, *sentryzerolog.Writer) {
 	level, err := zerolog.ParseLevel(config.LogLevel)
 	if err != nil {
 		// Default to info level if parsing fails

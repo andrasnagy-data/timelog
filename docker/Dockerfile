@@ -11,7 +11,11 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY ../api .
+COPY ../cmd .
+COPY ../internals .
+COPY ../go.mod .
+COPY ../go.sum .
 
 # Build the binary
 RUN go build -o main .

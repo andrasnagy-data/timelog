@@ -1,14 +1,15 @@
-package main
+package database
 
 import (
 	"context"
 	"time"
 
+	"github.com/andrasnagy-data/timelog/internal/shared/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
-func NewPgxPool(cfg Config, logger zerolog.Logger) (*pgxpool.Pool, error) {
+func NewPgxPool(cfg *config.Config, logger zerolog.Logger) (*pgxpool.Pool, error) {
 	logger.Debug().Str("DATABASE_URL", cfg.DatabaseURL).Msg("Initializing database connection pool")
 
 	config, err := pgxpool.ParseConfig(cfg.DatabaseURL)

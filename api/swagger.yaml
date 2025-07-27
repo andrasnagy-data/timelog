@@ -1,0 +1,276 @@
+basePath: /
+definitions:
+  activity.BulkCreateActivityIn:
+    properties:
+      activities:
+        items:
+          $ref: '#/definitions/activity.CreateActivityIn'
+        type: array
+    type: object
+  activity.BulkCreateActivityOut:
+    properties:
+      activities:
+        items:
+          $ref: '#/definitions/activity.CreateActivityOut'
+        type: array
+      count:
+        type: integer
+    type: object
+  activity.CreateActivityIn:
+    properties:
+      activity_name:
+        type: string
+      date:
+        type: string
+      duration:
+        description: minutes
+        type: integer
+    type: object
+  activity.CreateActivityOut:
+    properties:
+      activity_name:
+        type: string
+      created_at:
+        type: string
+      date:
+        type: string
+      duration:
+        description: minutes
+        type: integer
+      id:
+        type: integer
+      updated_at:
+        type: string
+      user_name:
+        type: string
+    type: object
+  activity.GetActivitiesResponse:
+    properties:
+      activities:
+        items:
+          $ref: '#/definitions/activity.CreateActivityOut'
+        type: array
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  activity.UpdateActivityIn:
+    properties:
+      activity_name:
+        type: string
+      date:
+        type: string
+      duration:
+        type: integer
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: andrasna@proton.me
+    name: András
+  description: A REST API for managing activity log
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Timelog
+  version: 0.1.0
+paths:
+  /activities:
+    get:
+      description: Get all activities for the authenticated user with pagination
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/activity.GetActivitiesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get all activities
+      tags:
+      - activities
+    post:
+      consumes:
+      - application/json
+      description: Create a new activity for the authenticated user
+      parameters:
+      - description: Activity to create
+        in: body
+        name: activity
+        required: true
+        schema:
+          $ref: '#/definitions/activity.CreateActivityIn'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/activity.CreateActivityOut'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new activity
+      tags:
+      - activities
+  /activities/{id}:
+    delete:
+      description: Delete an activity for the authenticated user
+      parameters:
+      - description: Activity ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete activity
+      tags:
+      - activities
+    get:
+      description: Get a specific activity by ID for the authenticated user
+      parameters:
+      - description: Activity ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/activity.CreateActivityOut'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get activity by ID
+      tags:
+      - activities
+    put:
+      consumes:
+      - application/json
+      description: Update an activity for the authenticated user (partial updates
+        supported)
+      parameters:
+      - description: Activity ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Activity fields to update
+        in: body
+        name: activity
+        required: true
+        schema:
+          $ref: '#/definitions/activity.UpdateActivityIn'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/activity.CreateActivityOut'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update activity
+      tags:
+      - activities
+  /activities/bulk:
+    post:
+      consumes:
+      - application/json
+      description: Create multiple activities for the authenticated user
+      parameters:
+      - description: Activities to create
+        in: body
+        name: activities
+        required: true
+        schema:
+          $ref: '#/definitions/activity.BulkCreateActivityIn'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/activity.BulkCreateActivityOut'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Bulk create activities
+      tags:
+      - activities
+schemes:
+- http
+- https
+swagger: "2.0"
