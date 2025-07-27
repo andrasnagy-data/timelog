@@ -11,14 +11,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY ../api .
-COPY ../cmd .
-COPY ../internals .
-COPY ../go.mod .
-COPY ../go.sum .
+COPY . .
 
 # Build the binary
-RUN go build -o main .
+RUN go build -o main ./cmd/server
 
 # Runtime stage
 FROM alpine:latest
