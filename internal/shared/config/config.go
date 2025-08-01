@@ -10,7 +10,7 @@ type Config struct {
 	LogLevel     string `env:"LOG_LEVEL"`
 	SecretKey    string `env:"SECRET_KEY"`
 	UserId       string `env:"USER_ID"`
-	Username     string `env:"USERNAME" envDefault:"admin"`
+	Username     string `env:"APP_USERNAME" envDefault:"admin"`
 	PasswordHash string `env:"PASSWORD_HASH"`
 	SentryDSN    string `env:"SENTRY_DSN"`
 	DatabaseURL  string `env:"DATABASE_URL"`
