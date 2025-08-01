@@ -4,12 +4,16 @@ import "github.com/caarlos0/env/v11"
 
 // Config holds application configuration
 type Config struct {
-	Version     string `env:"VERSION"`
-	Port        int    `env:"PORT"`
-	Environment string `env:"ENVIRONMENT"`
-	LogLevel    string `env:"LOG_LEVEL"`
-	SentryDSN   string `env:"SENTRY_DSN"`
-	DatabaseURL string `env:"DATABASE_URL"`
+	Version      string `env:"VERSION"`
+	Port         int    `env:"PORT"`
+	Environment  string `env:"ENVIRONMENT"`
+	LogLevel     string `env:"LOG_LEVEL"`
+	SecretKey    string `env:"SECRET_KEY"`
+	UserId       string `env:"USER_ID"`
+	Username     string `env:"USERNAME" envDefault:"admin"`
+	PasswordHash string `env:"PASSWORD_HASH"`
+	SentryDSN    string `env:"SENTRY_DSN"`
+	DatabaseURL  string `env:"DATABASE_URL"`
 }
 
 func NewConfig() (*Config, error) {

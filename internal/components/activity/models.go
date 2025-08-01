@@ -1,6 +1,10 @@
 package activity
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type (
 	CreateActivityIn struct {
@@ -11,7 +15,7 @@ type (
 
 	CreateActivityOut struct {
 		ID           int       `json:"id"`
-		UserName     string    `json:"user_name"`
+		UserID       uuid.UUID `json:"user_id"`
 		ActivityName string    `json:"activity_name"`
 		Duration     int       `json:"duration"` // minutes
 		Date         time.Time `json:"date"`
@@ -19,19 +23,12 @@ type (
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
 
-	BulkCreateActivityIn struct {
-		Activities []CreateActivityIn `json:"activities"`
-	}
-
-	BulkCreateActivityOut struct {
-		Activities []CreateActivityOut `json:"activities"`
-		Count      int                 `json:"count"`
-	}
 
 	GetActivitiesQuery struct {
-		Page     int    `json:"page"`
-		Limit    int    `json:"limit"`
-		UserName string `json:"user_name,omitempty"`
+		Page      int        `json:"page"`
+		Limit     int        `json:"limit"`
+		StartDate *time.Time `json:"start_date,omitempty"`
+		EndDate   *time.Time `json:"end_date,omitempty"`
 	}
 
 	GetActivitiesResponse struct {

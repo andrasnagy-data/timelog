@@ -1,8 +1,0 @@
-# Generate Swagger documentation from code annotations
-swagger-gen:
-    swag init -g cmd/server/main.go -o api/
-
-# Generate Swagger docs and start server with docs available at /swagger/
-start-with-docs: swagger-gen start
-
-

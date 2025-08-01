@@ -18,6 +18,7 @@ package main
 
 import (
 	"github.com/andrasnagy-data/timelog/internal/components/activity"
+	"github.com/andrasnagy-data/timelog/internal/components/auth"
 	"github.com/andrasnagy-data/timelog/internal/server"
 	"github.com/andrasnagy-data/timelog/internal/shared/config"
 	"github.com/andrasnagy-data/timelog/internal/shared/database"
@@ -31,13 +32,15 @@ func main() {
 			config.NewConfig,
 			logging.NewLogger,
 			database.NewPgxPool,
+			server.NewServer,
 			server.NewHealthSrvc,
 			server.NewHealthHandler,
-			activity.NewActivitySrvc,
-
-			activity.NewActivityRouter,
-			server.NewServer,
+			activity.NewRepo,
+			activity.NewService,
+			fx.Annotate(activity.NewRouter, fx.ResultTags(`name:"activityRouter"`)),
+			auth.NewAuthService,
+			fx.Annotate(auth.NewRouter, fx.ResultTags(`name:"authRouter"`)),
 		),
-		fx.Invoke((*server.Server).Start),
+		fx.Invoke(server.Register),
 	).Run()
 }

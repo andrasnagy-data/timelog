@@ -9,6 +9,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// NewPgxPool creates a PostgreSQL connection pool with production-ready settings.
+// It configures connection limits, timeouts, and lifetimes optimized for web applications.
+// Pool settings: max 10 connections, min 5 connections, 1-hour max lifetime, 30-min idle timeout.
 func NewPgxPool(cfg *config.Config, logger zerolog.Logger) (*pgxpool.Pool, error) {
 	logger.Debug().Str("DATABASE_URL", cfg.DatabaseURL).Msg("Initializing database connection pool")
 

@@ -1,0 +1,81 @@
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Activity</th>
+            <th>Duration (min)</th>
+            <th>Date</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Activities}}
+        <tr>
+            <td>{{.ID}}</td>
+            <td>{{.ActivityName}}</td>
+            <td>{{.Duration}}</td>
+            <td>{{.Date.Format "2006-01-02"}}</td>
+            <td>
+                <div class="actions" id="edit-form-{{.ID}}">
+                    <button class="btn btn-warning btn-sm" 
+                            hx-get="/api/activities/{{.ID}}/edit"
+                            hx-target="#edit-form-{{.ID}}"
+                            hx-swap="outerHTML">
+                        Edit
+                    </button>
+                    <button class="btn btn-danger btn-sm" 
+                            hx-delete="/api/activities/{{.ID}}"
+                            hx-confirm="Are you sure you want to delete this activity?"
+                            hx-target="#messages"
+                            hx-swap="innerHTML">
+                        Delete
+                    </button>
+                </div>
+            </td>
+        </tr>
+        {{else}}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #666;">
+                No activities found. Add your first activity below!
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+
+<!-- Pagination -->
+<div class="pagination">
+    <button class="btn btn-primary" 
+            hx-get="/api/activities?page=1{{if .PageSize}}&page_size={{.PageSize}}{{end}}{{if .StartDate}}&start_date={{.StartDate}}{{end}}{{if .EndDate}}&end_date={{.EndDate}}{{end}}" 
+            hx-target="#activities-table"
+            hx-swap="innerHTML"
+            {{if eq .Page 1}}disabled{{end}}>
+        First
+    </button>
+    
+    <button class="btn btn-primary" 
+            hx-get="/api/activities?page={{.PrevPage}}{{if .PageSize}}&page_size={{.PageSize}}{{end}}{{if .StartDate}}&start_date={{.StartDate}}{{end}}{{if .EndDate}}&end_date={{.EndDate}}{{end}}" 
+            hx-target="#activities-table"
+            hx-swap="innerHTML"
+            {{if eq .Page 1}}disabled{{end}}>
+        Previous
+    </button>
+    
+    <span class="page-info">Page {{.Page}} of {{.TotalPages}} ({{.Total}} total, showing {{.PageSize}} per page)</span>
+    
+    <button class="btn btn-primary" 
+            hx-get="/api/activities?page={{.NextPage}}{{if .PageSize}}&page_size={{.PageSize}}{{end}}{{if .StartDate}}&start_date={{.StartDate}}{{end}}{{if .EndDate}}&end_date={{.EndDate}}{{end}}" 
+            hx-target="#activities-table"
+            hx-swap="innerHTML"
+            {{if eq .Page .TotalPages}}disabled{{end}}>
+        Next
+    </button>
+    
+    <button class="btn btn-primary" 
+            hx-get="/api/activities?page={{.TotalPages}}{{if .PageSize}}&page_size={{.PageSize}}{{end}}{{if .StartDate}}&start_date={{.StartDate}}{{end}}{{if .EndDate}}&end_date={{.EndDate}}{{end}}" 
+            hx-target="#activities-table"
+            hx-swap="innerHTML"
+            {{if eq .Page .TotalPages}}disabled{{end}}>
+        Last
+    </button>
+</div>

@@ -6,7 +6,7 @@ start-db:
     docker compose up -d postgres
 
 # Start database and run the server
-start: start-db swagger-gen
+start: start-db
     export $(cat env/.env.dev | xargs) \
     && go run ./cmd/server
 
@@ -27,7 +27,3 @@ migrate-down env="dev":
 # Create new migration files
 migrate-create name:
     migrate create -ext sql -dir migrations -seq {{name}}
-
-# Generate Swagger documentation from code annotations
-swagger-gen:
-    swag init -g cmd/server/main.go -o api/

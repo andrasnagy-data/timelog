@@ -1,134 +1,64 @@
 package activity
 
 import (
-	"encoding/json"
+	"encoding/csv"
+	"fmt"
+	"html/template"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/andrasnagy-data/timelog/internal/shared/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/hlog"
 )
 
 type (
-	ActivityRouter struct {
-		service activitySrvc
+	Router struct {
+		service servicer
 	}
 )
 
-func NewActivityRouter(service activitySrvc) chi.Router {
-	router := &ActivityRouter{service: service}
+func NewRouter(service servicer) chi.Router {
+	router := &Router{service: service}
 	return router.Routes()
 }
 
-func (r *ActivityRouter) Routes() chi.Router {
+func (r *Router) Routes() chi.Router {
 	router := chi.NewRouter()
 
-	router.Post("/", r.CreateActivity)
-	router.Post("/bulk", r.BulkCreateActivities)
 	router.Get("/", r.GetActivities)
-	router.Get("/{id}", r.GetActivityByID)
+	router.Get("/filter", r.GetActivities)
+	router.Post("/add", r.CreateActivity)
+	router.Get("/{id}/edit", r.GetEditForm)
 	router.Put("/{id}", r.UpdateActivity)
+	router.Get("/{id}/cancel-edit", r.CancelEdit)
 	router.Delete("/{id}", r.DeleteActivity)
+	router.Get("/export", r.ExportCSV)
 
 	return router
 }
 
-// CreateActivity godoc
-// @Summary Create a new activity
-// @Description Create a new activity for the authenticated user
-// @Tags activities
-// @Accept json
-// @Produce json
-// @Param activity body CreateActivityIn true "Activity to create"
-// @Success 201 {object} CreateActivityOut
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /activities [post]
-func (r *ActivityRouter) CreateActivity(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	logger := hlog.FromRequest(req)
-
-	// TODO: Extract user_name from JWT context
-	userName := "mock_user"
-
-	var body CreateActivityIn
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		logger.Warn().Err(err).Msg("Invalid request body for activity creation")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	resp, err := r.service.CreateActivity(ctx, userName, body)
-	if err != nil {
-		logger.Error().Err(err).Msg("Error creating activity")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode create activity response")
-	}
+// HTMX template data structure
+type ActivitiesTemplateData struct {
+	Activities []CreateActivityOut
+	Total      int
+	Page       int
+	PageSize   int
+	TotalPages int
+	NextPage   int
+	PrevPage   int
+	StartDate  string
+	EndDate    string
 }
 
-// BulkCreateActivities godoc
-// @Summary Bulk create activities
-// @Description Create multiple activities for the authenticated user
-// @Tags activities
-// @Accept json
-// @Produce json
-// @Param activities body BulkCreateActivityIn true "Activities to create"
-// @Success 201 {object} BulkCreateActivityOut
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /activities/bulk [post]
-func (r *ActivityRouter) BulkCreateActivities(w http.ResponseWriter, req *http.Request) {
+// GetActivities returns activities as HTML table for HTMX
+func (r *Router) GetActivities(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	logger := hlog.FromRequest(req)
 
-	// TODO: Extract user_name from JWT context
-	userName := "mock_user"
-
-	var body BulkCreateActivityIn
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		logger.Warn().Err(err).Msg("Invalid request body for bulk activity creation")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	resp, err := r.service.BulkCreateActivities(ctx, userName, body)
-	if err != nil {
-		logger.Error().Err(err).Msg("Error bulk creating activities")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode bulk create response")
-	}
-}
-
-// GetActivities godoc
-// @Summary Get all activities
-// @Description Get all activities for the authenticated user with pagination
-// @Tags activities
-// @Produce json
-// @Param page query int false "Page number (default: 1)"
-// @Param limit query int false "Items per page (default: 20, max: 100)"
-// @Success 200 {object} GetActivitiesResponse
-// @Failure 500 {object} map[string]string
-// @Router /activities [get]
-func (r *ActivityRouter) GetActivities(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	logger := hlog.FromRequest(req)
-
-	// TODO: Extract user_name from JWT context
-	userName := "mock_user"
+	userID := middleware.GetUserID(ctx)
 
 	query := GetActivitiesQuery{
 		Page:  1,
@@ -141,41 +71,127 @@ func (r *ActivityRouter) GetActivities(w http.ResponseWriter, req *http.Request)
 			query.Page = page
 		}
 	}
-	if l := req.URL.Query().Get("limit"); l != "" {
+	if l := req.URL.Query().Get("page_size"); l != "" {
 		if limit, err := strconv.Atoi(l); err == nil && limit > 0 && limit <= 100 {
 			query.Limit = limit
 		}
 	}
 
-	resp, err := r.service.GetActivities(ctx, userName, query)
+	// Parse date filters
+	if startDate := req.URL.Query().Get("start_date"); startDate != "" {
+		if date, err := time.Parse("2006-01-02", startDate); err == nil {
+			query.StartDate = &date
+		}
+	}
+	if endDate := req.URL.Query().Get("end_date"); endDate != "" {
+		if date, err := time.Parse("2006-01-02", endDate); err == nil {
+			query.EndDate = &date
+		}
+	}
+
+	resp, err := r.service.GetActivities(ctx, userID, query)
 	if err != nil {
 		logger.Error().Err(err).Msg("Error getting activities")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode get activities response")
+	// Calculate pagination data
+	totalPages := int(math.Ceil(float64(resp.Total) / float64(resp.Limit)))
+	nextPage := resp.Page + 1
+	if nextPage > totalPages {
+		nextPage = totalPages
+	}
+	prevPage := resp.Page - 1
+	if prevPage < 1 {
+		prevPage = 1
+	}
+
+	templateData := ActivitiesTemplateData{
+		Activities: resp.Activities,
+		Total:      resp.Total,
+		Page:       resp.Page,
+		PageSize:   resp.Limit,
+		TotalPages: totalPages,
+		NextPage:   nextPage,
+		PrevPage:   prevPage,
+		StartDate:  req.URL.Query().Get("start_date"),
+		EndDate:    req.URL.Query().Get("end_date"),
+	}
+
+	tmpl, err := template.ParseFiles("templates/activities_table.html")
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to parse activities table template")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	if err := tmpl.Execute(w, templateData); err != nil {
+		logger.Error().Err(err).Msg("Failed to execute activities table template")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-// GetActivityByID godoc
-// @Summary Get activity by ID
-// @Description Get a specific activity by ID for the authenticated user
-// @Tags activities
-// @Produce json
-// @Param id path int true "Activity ID"
-// @Success 200 {object} CreateActivityOut
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Router /activities/{id} [get]
-func (r *ActivityRouter) GetActivityByID(w http.ResponseWriter, req *http.Request) {
+// CreateActivity creates activity and returns success message for HTMX
+func (r *Router) CreateActivity(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	logger := hlog.FromRequest(req)
 
-	// TODO: Extract user_name from JWT context
-	userName := "mock_user"
+	userID := middleware.GetUserID(ctx)
+
+	// Parse form data
+	if err := req.ParseForm(); err != nil {
+		logger.Warn().Err(err).Msg("Failed to parse form")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Invalid form data</div>`)
+		return
+	}
+
+	activityName := req.FormValue("activity_name")
+	durationStr := req.FormValue("duration")
+	dateStr := req.FormValue("date")
+
+	duration, err := strconv.Atoi(durationStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Invalid duration</div>`)
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Invalid date format</div>`)
+		return
+	}
+
+	body := CreateActivityIn{
+		ActivityName: activityName,
+		Duration:     duration,
+		Date:         date,
+	}
+
+	_, err = r.service.CreateActivity(ctx, userID, body)
+	if err != nil {
+		logger.Error().Err(err).Msg("Error creating activity")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Failed to create activity</div>`)
+		return
+	}
+
+	// Return success message and trigger table refresh
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("HX-Trigger", "refreshTable")
+	fmt.Fprint(w, `<div class="success">Activity added successfully!</div>`)
+}
+
+// GetEditForm returns edit form for a specific activity
+func (r *Router) GetEditForm(w http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	logger := hlog.FromRequest(req)
+
+	userID := middleware.GetUserID(ctx)
 
 	idStr := chi.URLParam(req, "id")
 	id, err := strconv.Atoi(idStr)
@@ -185,96 +201,214 @@ func (r *ActivityRouter) GetActivityByID(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	resp, err := r.service.GetActivityByID(ctx, userName, id)
+	activity, err := r.service.GetActivityByID(ctx, userID, id)
 	if err != nil {
 		logger.Error().Err(err).Int("id", id).Msg("Error getting activity by ID")
 		http.Error(w, "Activity not found", http.StatusNotFound)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode get activity response")
-	}
+	editFormHTML := fmt.Sprintf(`
+		<div class="actions" id="edit-form-%d">
+			<form hx-put="/api/activities/%d" hx-target="#edit-form-%d" hx-swap="outerHTML" style="display: inline-flex; gap: 5px; align-items: center;">
+				<input type="text" name="activity_name" value="%s" style="width: 120px; padding: 4px; border: 1px solid #ddd; border-radius: 3px;">
+				<input type="number" name="duration" value="%d" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 3px;">
+				<input type="date" name="date" value="%s" style="padding: 4px; border: 1px solid #ddd; border-radius: 3px;">
+				<button type="submit" class="btn btn-success btn-sm">Save</button>
+				<button type="button" class="btn btn-secondary btn-sm" 
+						hx-get="/api/activities/%d/cancel-edit" 
+						hx-target="#edit-form-%d" 
+						hx-swap="outerHTML">Cancel</button>
+			</form>
+		</div>`,
+		activity.ID, activity.ID, activity.ID,
+		activity.ActivityName, activity.Duration, activity.Date.Format("2006-01-02"),
+		activity.ID, activity.ID)
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, editFormHTML)
 }
 
-// UpdateActivity godoc
-// @Summary Update activity
-// @Description Update an activity for the authenticated user (partial updates supported)
-// @Tags activities
-// @Accept json
-// @Produce json
-// @Param id path int true "Activity ID"
-// @Param activity body UpdateActivityIn true "Activity fields to update"
-// @Success 200 {object} CreateActivityOut
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Router /activities/{id} [put]
-func (r *ActivityRouter) UpdateActivity(w http.ResponseWriter, req *http.Request) {
+// DeleteActivity deletes activity and returns success message for HTMX
+func (r *Router) DeleteActivity(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	logger := hlog.FromRequest(req)
 
-	// TODO: Extract user_name from JWT context
-	userName := "mock_user"
+	userID := middleware.GetUserID(ctx)
 
 	idStr := chi.URLParam(req, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		logger.Warn().Str("id", idStr).Msg("Invalid activity ID")
-		http.Error(w, "Invalid activity ID", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Invalid activity ID</div>`)
 		return
 	}
 
-	var body UpdateActivityIn
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		logger.Warn().Err(err).Msg("Invalid request body for activity update")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	resp, err := r.service.UpdateActivity(ctx, userName, id, body)
-	if err != nil {
-		logger.Error().Err(err).Int("id", id).Msg("Error updating activity")
-		http.Error(w, "Activity not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error().Err(err).Msg("Failed to encode update activity response")
-	}
-}
-
-// DeleteActivity godoc
-// @Summary Delete activity
-// @Description Delete an activity for the authenticated user
-// @Tags activities
-// @Param id path int true "Activity ID"
-// @Success 204 "No Content"
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Router /activities/{id} [delete]
-func (r *ActivityRouter) DeleteActivity(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	logger := hlog.FromRequest(req)
-
-	// TODO: Extract user_name from JWT context
-	userName := "mock_user"
-
-	idStr := chi.URLParam(req, "id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		logger.Warn().Str("id", idStr).Msg("Invalid activity ID")
-		http.Error(w, "Invalid activity ID", http.StatusBadRequest)
-		return
-	}
-
-	err = r.service.DeleteActivity(ctx, userName, id)
+	err = r.service.DeleteActivity(ctx, userID, id)
 	if err != nil {
 		logger.Error().Err(err).Int("id", id).Msg("Error deleting activity")
-		http.Error(w, "Activity not found", http.StatusNotFound)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Failed to delete activity</div>`)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	// Return success message and trigger table refresh
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("HX-Trigger", "refreshTable")
+	fmt.Fprint(w, `<div class="success">Activity deleted successfully!</div>`)
+}
+
+// ExportCSV exports activities as CSV file
+func (r *Router) ExportCSV(w http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	logger := hlog.FromRequest(req)
+
+	userID := middleware.GetUserID(ctx)
+
+	// Get all activities (no pagination for export)
+	query := GetActivitiesQuery{
+		Page:  1,
+		Limit: 10000, // Large limit to get all activities
+	}
+
+	resp, err := r.service.GetActivities(ctx, userID, query)
+	if err != nil {
+		logger.Error().Err(err).Msg("Error getting activities for export")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set CSV headers
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=activities.csv")
+
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	// Write CSV header
+	if err := writer.Write([]string{"Activity", "Duration (minutes)", "Date", "Created At"}); err != nil {
+		logger.Error().Err(err).Msg("Error writing CSV header")
+		return
+	}
+
+	// Write activity data
+	for _, activity := range resp.Activities {
+		record := []string{
+			activity.ActivityName,
+			strconv.Itoa(activity.Duration),
+			activity.Date.Format("2006-01-02"),
+			activity.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+		if err := writer.Write(record); err != nil {
+			logger.Error().Err(err).Msg("Error writing CSV record")
+			return
+		}
+	}
+}
+
+// UpdateActivity updates activity and returns updated row for HTMX
+func (r *Router) UpdateActivity(w http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	logger := hlog.FromRequest(req)
+
+	userID := middleware.GetUserID(ctx)
+
+	idStr := chi.URLParam(req, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		logger.Warn().Str("id", idStr).Msg("Invalid activity ID")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Invalid activity ID</div>`)
+		return
+	}
+
+	// Parse form data
+	if err := req.ParseForm(); err != nil {
+		logger.Warn().Err(err).Msg("Failed to parse form")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Invalid form data</div>`)
+		return
+	}
+
+	body := UpdateActivityIn{}
+
+	if activityName := req.FormValue("activity_name"); activityName != "" {
+		body.ActivityName = &activityName
+	}
+
+	if durationStr := req.FormValue("duration"); durationStr != "" {
+		if duration, err := strconv.Atoi(durationStr); err == nil {
+			body.Duration = &duration
+		}
+	}
+
+	if dateStr := req.FormValue("date"); dateStr != "" {
+		if date, err := time.Parse("2006-01-02", dateStr); err == nil {
+			body.Date = &date
+		}
+	}
+
+	updatedActivity, err := r.service.UpdateActivity(ctx, userID, id, body)
+	if err != nil {
+		logger.Error().Err(err).Int("id", id).Msg("Error updating activity")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div class="error">Failed to update activity</div>`)
+		return
+	}
+
+	// Return updated action buttons
+	actionsHTML := fmt.Sprintf(`
+		<div class="actions" id="edit-form-%d">
+			<button class="btn btn-warning btn-sm" 
+					hx-get="/api/activities/%d/edit"
+					hx-target="#edit-form-%d"
+					hx-swap="outerHTML">
+				Edit
+			</button>
+			<button class="btn btn-danger btn-sm" 
+					hx-delete="/api/activities/%d"
+					hx-confirm="Are you sure you want to delete this activity?"
+					hx-target="#messages"
+					hx-swap="innerHTML">
+				Delete
+			</button>
+		</div>`,
+		updatedActivity.ID, updatedActivity.ID, updatedActivity.ID, updatedActivity.ID)
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("HX-Trigger", "refreshTable")
+	fmt.Fprint(w, actionsHTML)
+}
+
+// CancelEdit returns normal action buttons for HTMX
+func (r *Router) CancelEdit(w http.ResponseWriter, req *http.Request) {
+	idStr := chi.URLParam(req, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid activity ID", http.StatusBadRequest)
+		return
+	}
+
+	// Return normal action buttons
+	actionsHTML := fmt.Sprintf(`
+		<div class="actions" id="edit-form-%d">
+			<button class="btn btn-warning btn-sm" 
+					hx-get="/api/activities/%d/edit"
+					hx-target="#edit-form-%d"
+					hx-swap="outerHTML">
+				Edit
+			</button>
+			<button class="btn btn-danger btn-sm" 
+					hx-delete="/api/activities/%d"
+					hx-confirm="Are you sure you want to delete this activity?"
+					hx-target="#messages"
+					hx-swap="innerHTML">
+				Delete
+			</button>
+		</div>`,
+		id, id, id, id)
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, actionsHTML)
 }

@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"html/template"
 	"net/http"
 	"time"
 
@@ -11,24 +13,24 @@ import (
 	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/hlog"
-	httpSwagger "github.com/swaggo/http-swagger"
 	"go.uber.org/fx"
 
-	_ "github.com/andrasnagy-data/timelog/api"
 	"github.com/andrasnagy-data/timelog/internal/shared/config"
+	"github.com/andrasnagy-data/timelog/internal/shared/middleware"
 )
 
 type (
 	// Server represents the HTTP server with all dependencies
 	Server struct {
-		server         *http.Server
-		config         *config.Config
-		logger         zerolog.Logger
-		healthHandler  http.HandlerFunc
-		sentryWriter   *sentryzerolog.Writer
-		ActivityRouter chi.Router
+		server        *http.Server
+		config        *config.Config
+		logger        zerolog.Logger
+		pool          *pgxpool.Pool
+		healthHandler http.HandlerFunc
+		sentryWriter  *sentryzerolog.Writer
 	}
 
 	params struct {
@@ -36,9 +38,11 @@ type (
 
 		Config         *config.Config
 		Logger         zerolog.Logger
+		Pool           *pgxpool.Pool
 		HealthHandler  http.HandlerFunc
 		SentryWriter   *sentryzerolog.Writer
-		ActivityRouter chi.Router
+		ActivityRouter chi.Router `name:"activityRouter"`
+		AuthRouter     chi.Router `name:"authRouter"`
 	}
 )
 
@@ -97,12 +101,58 @@ func NewServer(p params) *Server {
 	}))
 
 	// Routes
-	// Swagger documentation
-	r.Get("/swagger/*", httpSwagger.WrapHandler)
-
 	r.Get("/health", p.HealthHandler)
 
-	r.Mount("/activities", p.ActivityRouter)
+	// Public routes (no auth needed)
+	r.Mount("/login", p.AuthRouter)
+	
+	// Logout route - accessible without auth since we're logging out
+	r.Get("/logout", func(w http.ResponseWriter, req *http.Request) {
+		logger := hlog.FromRequest(req)
+		logger.Debug().Msg("User logging out")
+
+		// Clear the session cookie by setting it with expired date and empty value
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session",
+			Value:    "",
+			HttpOnly: true,
+			Path:     "/",
+			Secure:   true,
+			MaxAge:   -1, // This expires the cookie immediately
+		})
+
+		// Redirect to login page
+		http.Redirect(w, req, "/login", http.StatusSeeOther)
+	})
+
+	// Protected routes (require auth)
+	secretKey, err := hex.DecodeString(p.Config.SecretKey)
+	if err != nil {
+		panic("Invalid hex secret key: " + err.Error())
+	}
+	authMW := middleware.NewAuthMiddleware(secretKey)
+	r.Route("/", func(r chi.Router) {
+		r.Use(authMW)
+		// Main page of the app
+		r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+			logger := hlog.FromRequest(req)
+
+			tmpl, err := template.ParseFiles("templates/activities.html")
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to parse activities template")
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			err = tmpl.Execute(w, nil)
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to execute activities template")
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		})
+		r.Mount("/api/activities", p.ActivityRouter)
+	})
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", p.Config.Port),
@@ -113,16 +163,20 @@ func NewServer(p params) *Server {
 		config:        p.Config,
 		healthHandler: p.HealthHandler,
 		logger:        p.Logger,
+		pool:          p.Pool,
 		server:        server,
 		sentryWriter:  p.SentryWriter,
 	}
 }
 
-func (s *Server) Start(lc fx.Lifecycle) {
+func Register(lc fx.Lifecycle, p params) *Server {
+	server := NewServer(p)
+
 	lc.Append(fx.Hook{
-		OnStart: s.start,
-		OnStop:  s.stop,
+		OnStart: server.start,
+		OnStop:  server.stop,
 	})
+	return server
 }
 
 // start starts the HTTP server
@@ -132,6 +186,7 @@ func (s *Server) start(_ context.Context) error {
 		Str("environment", s.config.Environment).
 		Bool("sentry_enabled", s.config.IsEnvProd()).
 		Msg("Starting HTTP server")
+
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			s.logger.Error().Err(err).Msg("Server failed to start")
@@ -162,6 +217,9 @@ func (s *Server) stop(ctx context.Context) error {
 		s.logger.Error().Err(err).Msg("Error during server shutdown")
 		return err
 	}
+
+	s.logger.Info().Msg("Closing database connection pool")
+	s.pool.Close()
 
 	s.logger.Info().Msg("HTTP server shutdown completed")
 	return nil
